@@ -1,30 +1,71 @@
 <template>
-  <nav>
-    <router-link to="/">Home</router-link> |
-    <router-link to="/about">About</router-link>
-  </nav>
-  <router-view/>
+  <a-config-provider :theme="{}">
+    <router-view />
+  </a-config-provider>
 </template>
 
+<script lang="ts">
+import { defineComponent } from 'vue'
+import { ConfigProvider, message } from 'ant-design-vue'
+import { ACCESS_INVALIDATED_EVENT, AUTH_CHANGED_EVENT, getAuthorization, getAuthExpiresAt } from '@/utils/auth-token'
+
+import { clearAccess, loadAccess } from '@/utils/access'
+
+export default defineComponent({
+  name: 'App',
+  components: { AConfigProvider: ConfigProvider },
+  data() { return { expiryTimer: 0 } },
+  mounted() {
+    window.addEventListener(ACCESS_INVALIDATED_EVENT, this.refreshAccess)
+    window.addEventListener(AUTH_CHANGED_EVENT, this.syncAuthentication)
+    window.addEventListener('storage', this.syncAuthentication)
+    window.addEventListener('focus', this.syncAuthentication)
+    this.syncAuthentication()
+  },
+  beforeUnmount() {
+    window.removeEventListener(ACCESS_INVALIDATED_EVENT, this.refreshAccess)
+    window.removeEventListener(AUTH_CHANGED_EVENT, this.syncAuthentication)
+    window.removeEventListener('storage', this.syncAuthentication)
+    window.removeEventListener('focus', this.syncAuthentication)
+    window.clearTimeout(this.expiryTimer)
+  },
+  methods: {
+    refreshAccess() { return loadAccess(true).catch(this.accessError) },
+    accessError(error: unknown) {
+      if (getAuthorization()) message.error(error instanceof Error ? error.message : '权限信息加载失败，请刷新重试')
+    },
+    syncAuthentication() {
+      window.clearTimeout(this.expiryTimer)
+      if (!getAuthorization()) {
+        clearAccess()
+        if (this.$route.meta.requiresAuth) {
+          this.$router.replace({ path: '/login', query: { redirect: this.$route.fullPath } })
+        }
+        return
+      }
+      // 功能权限后台加载，不阻塞页面和导航。
+      loadAccess().catch(this.accessError)
+      const expiresAt = getAuthExpiresAt()
+      if (expiresAt !== null) {
+        this.expiryTimer = window.setTimeout(this.syncAuthentication, Math.min(Math.max(1, expiresAt - Date.now()), 2147483647))
+      }
+    }
+  }
+})
+</script>
+
 <style>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-nav {
-  padding: 30px;
-}
-
-nav a {
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-nav a.router-link-exact-active {
-  color: #42b983;
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  color: #262626;
+  background: #fff;
 }
 </style>
